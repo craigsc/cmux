@@ -9,6 +9,7 @@
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
 #   cmux rm [branch]      — Remove worktree (no args = current worktree)
+#   cmux rm --all         — Remove ALL worktrees (requires confirmation)
 #   cmux init             — Generate .cmux/setup hook using Claude
 
 cmux() {
@@ -30,6 +31,7 @@ cmux() {
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  rm [branch]      Remove worktree (no args = current)"
+      echo "  rm --all         Remove ALL worktrees (requires confirmation)"
       echo "  init             Generate .cmux/setup hook using Claude"
       return 1
       ;;
@@ -167,6 +169,12 @@ _cmux_rm() {
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
+  # --all: remove every cmux worktree
+  if [[ "$branch" == "--all" ]]; then
+    _cmux_rm_all "$repo_root"
+    return $?
+  fi
+
   # No args: detect current worktree
   if [[ -z "$branch" ]]; then
     if [[ "$PWD" == */.worktrees/* ]]; then
@@ -201,6 +209,81 @@ _cmux_rm() {
     git -C "$repo_root" branch -d "$branch" 2>/dev/null
 
   echo "Removed worktree and branch: $branch"
+}
+
+_cmux_rm_all() {
+  local repo_root="$1"
+  local worktrees_dir="$repo_root/.worktrees"
+
+  if [[ ! -d "$worktrees_dir" ]]; then
+    echo "No .worktrees directory found."
+    return 0
+  fi
+
+  # Collect worktree info: pairs of (directory, branch)
+  local dirs=()
+  local branches=()
+  local wt_dir wt_branch
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    wt_dir="$(echo "$line" | awk '{print $1}')"
+    wt_branch="$(git -C "$repo_root" worktree list --porcelain \
+      | grep -A2 "^worktree ${wt_dir}\$" \
+      | grep '^branch ' \
+      | sed 's|^branch refs/heads/||')"
+    dirs+=("$wt_dir")
+    branches+=("${wt_branch:-unknown}")
+  done < <(git -C "$repo_root" worktree list | grep '\.worktrees/')
+
+  local count=${#dirs[@]}
+
+  if [[ "$count" -eq 0 ]]; then
+    echo "No cmux worktrees to remove."
+    return 0
+  fi
+
+  # Show what will be removed
+  echo "This will remove ALL cmux worktrees and their branches:"
+  echo ""
+  for (( i = 1; i <= ${#dirs[@]}; i++ )); do
+    local rel_dir="${dirs[$i]#$repo_root/}"
+    echo "  $rel_dir  (branch: ${branches[$i]})"
+  done
+  echo ""
+
+  # Require exact confirmation string
+  local expected="DELETE $count WORKTREES"
+  printf 'Type "%s" to confirm: ' "$expected"
+  read -r confirmation
+  if [[ "$confirmation" != "$expected" ]]; then
+    echo "Aborted."
+    return 1
+  fi
+
+  # If user is inside a worktree, cd out first
+  if [[ "$PWD" == "$worktrees_dir"* ]]; then
+    cd "$repo_root"
+  fi
+
+  # Remove each worktree
+  echo ""
+  local failed=0
+  for (( i = 1; i <= ${#dirs[@]}; i++ )); do
+    if git -C "$repo_root" worktree remove --force "${dirs[$i]}" 2>/dev/null; then
+      git -C "$repo_root" branch -d "${branches[$i]}" 2>/dev/null
+      echo "  Removed: ${branches[$i]}"
+    else
+      echo "  Failed:  ${branches[$i]}"
+      ((failed++))
+    fi
+  done
+
+  echo ""
+  if [[ "$failed" -eq 0 ]]; then
+    echo "All $count worktrees removed."
+  else
+    echo "Done. $((count - failed))/$count removed ($failed failed)."
+  fi
 }
 
 _cmux_init() {
