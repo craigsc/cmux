@@ -92,7 +92,7 @@ _cmux_new() {
     return 1
   fi
 
-  local branch="$1"
+  local branch="${*// /-}"
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
