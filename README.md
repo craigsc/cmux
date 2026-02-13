@@ -1,56 +1,73 @@
-# cmux — Claude Multiplexer
+# cmux — tmux for Claude Code
 
 Worktree lifecycle manager for parallel [Claude Code](https://docs.anthropic.com/en/docs/claude-code) sessions.
 
-Run multiple Claude agents in parallel on the same repo — each in its own git worktree with isolated working directory, node_modules, and build artifacts.
+Run multiple Claude agents in parallel on the same repo — each in its own git worktree with isolated working directory, dependencies, build artifacts, etc - completely configurable via an auto-generating per-project setup hook.
 
 ## Why
 
+Because you wanna go fast without losing your goddamn mind.
+
 Claude Code works best when it has full ownership of the working directory. When you want multiple agents working on different tasks simultaneously, you need separate checkouts. Git worktrees are the perfect primitive for this — they share the same `.git` database but give each agent its own directory tree.
 
-cmux wraps the worktree lifecycle into a single command.
+cmux wraps the worktree lifecycle into a single simple command and makes it effortless to manage the complete worktree lifecycle so Claude can focus on what it does best.
 
 ## Install
+
+### Quickstart
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/craigsc/cmux/main/install.sh | sh
 ```
 
-Or manually — download `cmux.sh` and source it in your shell config (`~/.bashrc` or `~/.zshrc`):
+### Manual
+
+1. Download `cmux.sh`
+2. Source it in your shell config (`~/.bashrc` or `~/.zshrc`):
 
 ```sh
 source /path/to/cmux.sh
 ```
 
+3. Run `cmux init` in your project folder to generate a setup hook
+
 ## Usage
 
 ```
-cmux new <branch>     — Create worktree, run setup hook, launch claude
-cmux start <branch>   — Launch claude in existing worktree
-cmux cd [branch]      — cd into worktree (no args = repo root)
-cmux ls               — List worktrees
-cmux rm [branch]      — Remove worktree (no args = current)
-cmux init             — Generate .cmux/setup hook using Claude
+
+cmux new <branch> — Create worktree, run setup hook, launch claude
+cmux start <branch> — Launch claude in existing worktree
+cmux cd [branch] — cd into worktree (no args = repo root)
+cmux ls — List worktrees
+cmux rm [branch] — Remove worktree (no args = current)
+cmux init — Generate .cmux/setup hook using Claude
+
 ```
 
 ### Typical workflow
 
 ```sh
 # Start a new agent on a feature branch
-cmux new add-auth
+cmux new feature-foo
 
 # In another terminal, start another agent
-cmux new fix-sidebar
+cmux new feature-bar
 
-# Check what's running
+# List project worktrees
 cmux ls
 
-# Jump between worktrees
-cmux cd add-auth
-cmux cd fix-sidebar
+# Jump directly back into previous Claude Code session
+cmux start feature-foo
 
-# Clean up when done
-cmux rm add-auth
+# cd into a worktree folder
+cmux cd feature-foo
+cmux cd feature-bar
+
+# Merge worktree back into project root
+#TODO
+
+# Clean up worktree when done
+cmux rm feature-foo
 ```
 
 ## Project setup hook
