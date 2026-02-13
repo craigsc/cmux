@@ -39,6 +39,7 @@ cmux new <branch> — Create worktree, run setup hook, launch claude
 cmux start <branch> — Launch claude in existing worktree
 cmux cd [branch] — cd into worktree (no args = repo root)
 cmux ls — List worktrees
+cmux merge [branch] — Merge worktree branch into main checkout
 cmux rm [branch] — Remove worktree (no args = current)
 cmux init — Generate .cmux/setup hook using Claude
 
@@ -63,8 +64,11 @@ cmux start feature-foo
 cmux cd feature-foo
 cmux cd feature-bar
 
-# Merge worktree back into project root
-#TODO
+# Merge worktree branch into main checkout
+cmux merge feature-foo
+
+# Or squash merge for a single clean commit
+cmux merge feature-foo --squash
 
 # Clean up worktree when done
 cmux rm feature-foo
@@ -119,6 +123,7 @@ Add `.worktrees/` to your project's `.gitignore`:
 - Worktrees are created under `.worktrees/<branch>/` in the repo root
 - Branch names are sanitized: `feature/foo` becomes `feature-foo`
 - `cmux new` is idempotent — if the worktree exists, it just `cd`s there
+- `cmux merge` with no args detects the current worktree and merges it
 - `cmux rm` with no args detects the current worktree and removes it
 - Works from anywhere inside the repo or its worktrees
 

@@ -8,6 +8,7 @@
 #   cmux start <branch>   — Launch claude -c in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
+#   cmux merge [branch]   — Merge worktree branch into main checkout
 #   cmux rm [branch]      — Remove worktree (no args = current worktree)
 #   cmux rm --all         — Remove ALL worktrees (requires confirmation)
 #   cmux init             — Generate .cmux/setup hook using Claude
@@ -21,15 +22,17 @@ cmux() {
     start) _cmux_start "$@" ;;
     cd)    _cmux_cd "$@" ;;
     ls)    _cmux_ls "$@" ;;
+    merge) _cmux_merge "$@" ;;
     rm)    _cmux_rm "$@" ;;
     init)  _cmux_init "$@" ;;
     *)
-      echo "Usage: cmux <new|start|cd|ls|rm|init> [branch]"
+      echo "Usage: cmux <new|start|cd|ls|merge|rm|init> [branch]"
       echo ""
       echo "  new <branch>     Create worktree, run setup hook, launch claude"
       echo "  start <branch>   Launch claude -c in existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
+      echo "  merge [branch]   Merge worktree branch into main checkout"
       echo "  rm [branch]      Remove worktree (no args = current)"
       echo "  rm --all         Remove ALL worktrees (requires confirmation)"
       echo "  init             Generate .cmux/setup hook using Claude"
@@ -162,6 +165,87 @@ _cmux_ls() {
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
   git -C "$repo_root" worktree list | grep '\.worktrees/'
+}
+
+_cmux_merge() {
+  local branch=""
+  local squash=false
+
+  # Parse args
+  for arg in "$@"; do
+    case "$arg" in
+      --squash) squash=true ;;
+      *)        branch="$arg" ;;
+    esac
+  done
+
+  local repo_root
+  repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
+
+  # No branch arg: detect from current worktree
+  if [[ -z "$branch" ]]; then
+    if [[ "$PWD" == */.worktrees/* ]]; then
+      local safe_name="${PWD##*/.worktrees/}"
+      safe_name="${safe_name%%/*}"
+      branch="$(git -C "$repo_root" worktree list --porcelain \
+        | grep -A2 "$repo_root/.worktrees/$safe_name\$" \
+        | grep '^branch ' \
+        | sed 's|^branch refs/heads/||')"
+      if [[ -z "$branch" ]]; then
+        echo "Could not detect branch for current worktree."
+        return 1
+      fi
+    else
+      echo "Usage: cmux merge <branch> [--squash]"
+      echo "  (or run with no args from inside a .worktrees/ directory)"
+      return 1
+    fi
+  fi
+
+  local worktree_dir
+  worktree_dir="$(_cmux_worktree_dir "$repo_root" "$branch")"
+
+  if [[ ! -d "$worktree_dir" ]]; then
+    echo "Worktree not found: $worktree_dir"
+    echo "Run 'cmux ls' to see available worktrees."
+    return 1
+  fi
+
+  # Check for uncommitted changes in the worktree
+  if ! git -C "$worktree_dir" diff --quiet 2>/dev/null || \
+     ! git -C "$worktree_dir" diff --cached --quiet 2>/dev/null; then
+    echo "Worktree has uncommitted changes: $worktree_dir"
+    echo "Commit or stash them before merging."
+    return 1
+  fi
+
+  # Determine what branch is checked out in the main repo
+  local target_branch
+  target_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+  if [[ -z "$target_branch" ]]; then
+    echo "Could not determine branch in main checkout."
+    return 1
+  fi
+
+  if [[ "$branch" == "$target_branch" ]]; then
+    echo "Cannot merge '$branch' into itself."
+    return 1
+  fi
+
+  # Move to repo root for the merge
+  cd "$repo_root"
+
+  echo "Merging '$branch' into '$target_branch'..."
+
+  if [[ "$squash" == true ]]; then
+    git merge --squash "$branch" || return 1
+    echo ""
+    echo "Squash merge staged. Review and commit the changes:"
+    echo "  cd $repo_root && git commit"
+  else
+    git merge "$branch" || return 1
+    echo "Merged '$branch' into '$target_branch'."
+  fi
 }
 
 _cmux_rm() {
