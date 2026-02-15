@@ -645,6 +645,7 @@ _cmux_update() {
   echo "Updating cmux ($CMUX_VERSION → $remote_version)..."
   if curl -fsSL "${_CMUX_DOWNLOAD_URL}/cmux.sh" -o "$install_path"; then
     printf '%s' "$remote_version" > "$HOME/.cmux/VERSION"
+    printf '%s' "$remote_version" > "$HOME/.cmux/.latest_version"
     source "$install_path"
     echo "cmux updated to $CMUX_VERSION."
   else
