@@ -32,8 +32,8 @@ That's it. One command, one agent, fully isolated. See [Workflow](#workflow) for
 
 | Command | What it does |
 |---------|-------------|
-| `cmux new <branch>` | Create branch + worktree, run setup hook, launch a **fresh** Claude session |
-| `cmux start <branch>` | cd into worktree and **resume** the most recent Claude conversation |
+| `cmux new <branch>` | Create **new** worktree + branch, run setup hook, launch Claude |
+| `cmux start <branch>` | **Continue** where you left off in an existing worktree |
 | `cmux cd [branch]` | cd into a worktree (no args = repo root) |
 | `cmux ls` | List active worktrees |
 | `cmux merge [branch] [--squash]` | Merge worktree branch into your primary checkout (no args = current worktree) |
@@ -66,10 +66,10 @@ cmux rm fix-payments
 Come back tomorrow and pick up the feature work right where you left off:
 
 ```sh
-cmux start feature-auth      # resumes your last conversation — context intact
+cmux start feature-auth      # picks up right where you left off
 ```
 
-The key distinction: `new` = fresh conversation, `start` = **same conversation, continued**.
+The key distinction: `new` = new worktree, new session. `start` = existing worktree, continuing session.
 
 ## Setup hook
 
@@ -96,7 +96,7 @@ See [`examples/`](examples/) for more.
 
 - Worktrees live under `.worktrees/<branch>/` in the repo root
 - Branch names are sanitized: `feature/foo` becomes `feature-foo`
-- `cmux new` is idempotent on the worktree — if it already exists, it skips creation and setup, but still launches a **fresh** Claude session
+- `cmux new` is idempotent on the worktree — if it already exists, it skips creation and setup, but still launches a new Claude session
 - `cmux merge` and `cmux rm` with no args detect the current worktree from `$PWD`
 - Pure bash — just git and the Claude CLI
 
