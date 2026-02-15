@@ -2,7 +2,11 @@
 
 Run a fleet of Claude agents on the same repo — each in its own worktree, zero conflicts, one command each.
 
-(Because you wanna go fast without losing your goddamn mind.)
+Claude Code works best when it has full ownership of the working directory. Want two agents working in parallel? They'll stomp on each other — conflicting edits, dirty state, broken builds. You need separate checkouts.
+
+[Git worktrees](https://git-scm.com/docs/git-worktree) are the perfect primitive for this. They share the same `.git` database but give each agent its own directory tree — no cloning, no syncing, branches stay in lockstep. cmux wraps the entire worktree lifecycle into single commands so you can spin agents up, jump between them, and tear them down without thinking about it.
+
+You wanna go fast without losing your goddamn mind. This is how.
 
 ## Install
 
@@ -10,13 +14,19 @@ Run a fleet of Claude agents on the same repo — each in its own worktree, zero
 curl -fsSL https://raw.githubusercontent.com/craigsc/cmux/main/install.sh | sh
 ```
 
+Then add `.worktrees/` to your `.gitignore`:
+
+```sh
+echo '.worktrees/' >> .gitignore
+```
+
 ## Quick start
 
 ```sh
-cmux new feature-auth       # create worktree + branch, run setup hook, launch a fresh Claude session
-cmux new fix-typo            # spin up a second agent in parallel — totally isolated
-cmux start feature-auth      # resume exactly where you left off (picks up your last conversation)
+cmux new feature-auth       # creates worktree + branch, runs setup hook, opens Claude
 ```
+
+That's it. One command, one agent, fully isolated. See [Workflow](#workflow) for the full loop.
 
 ## Commands
 
@@ -26,8 +36,8 @@ cmux start feature-auth      # resume exactly where you left off (picks up your 
 | `cmux start <branch>` | cd into worktree and **resume** the most recent Claude conversation |
 | `cmux cd [branch]` | cd into a worktree (no args = repo root) |
 | `cmux ls` | List active worktrees |
-| `cmux merge [branch] [--squash]` | Merge worktree branch into main checkout (no args = current worktree) |
-| `cmux rm [branch \| --all]` | Remove a worktree (no args = current, `--all` = every worktree with confirmation) |
+| `cmux merge [branch] [--squash]` | Merge worktree branch into your primary checkout (no args = current worktree) |
+| `cmux rm [branch \| --all]` | Remove a worktree and its branch (no args = current, `--all` = every worktree with confirmation) |
 | `cmux init [--replace]` | Generate `.cmux/setup` hook using Claude (`--replace` to regenerate) |
 | `cmux update` | Update cmux to the latest version |
 | `cmux version` | Show current version |
@@ -63,7 +73,7 @@ The key distinction: `new` = fresh conversation, `start` = **same conversation, 
 
 ## Setup hook
 
-When `cmux new` creates a worktree, it runs `.cmux/setup` if one exists. This handles project-specific init — symlinking secrets, installing deps, running codegen.
+When `cmux new` creates a worktree, it runs `.cmux/setup` if one exists. This handles project-specific init — symlinking secrets, installing deps, running codegen. If no setup hook exists, you'll be prompted to generate one.
 
 The easy way — let Claude write it for you:
 
@@ -84,15 +94,15 @@ See [`examples/`](examples/) for more.
 
 ## How it works
 
-- Worktrees live under `.worktrees/<branch>/` in the repo root (add `.worktrees/` to your `.gitignore`)
+- Worktrees live under `.worktrees/<branch>/` in the repo root
 - Branch names are sanitized: `feature/foo` becomes `feature-foo`
-- `cmux new` is idempotent — if the worktree already exists, it just cd's there
+- `cmux new` is idempotent on the worktree — if it already exists, it skips creation and setup, but still launches a **fresh** Claude session
 - `cmux merge` and `cmux rm` with no args detect the current worktree from `$PWD`
-- Pure bash, no dependencies
+- Pure bash — just git and the Claude CLI
 
 ## Tab completion
 
-Built-in completion for bash and zsh — automatically registered when you source `cmux.sh`, no extra setup.
+You never have to remember branch names. Built-in completion for bash and zsh — automatically registered when you source `cmux.sh`, no extra setup.
 
 - `cmux <TAB>` — subcommands
 - `cmux start <TAB>` — existing worktree branches
