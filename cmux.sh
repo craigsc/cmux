@@ -1,15 +1,15 @@
-# cmux — Claude Multiplexer
+# cmux — tmux for Claude Code
 #
 # Worktree lifecycle manager for parallel Claude Code sessions.
-# Generic core with project-specific setup via .cmux/setup hook.
+# Each agent gets its own worktree — no conflicts, one command each.
 #
 # Commands:
-#   cmux new <branch>     — Create worktree, run setup hook, launch claude
-#   cmux start <branch>   — Launch claude -c in an existing worktree
+#   cmux new <branch>     — New worktree + branch, run setup hook, launch Claude
+#   cmux start <branch>   — Continue where you left off in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
-#   cmux merge [branch]   — Merge worktree branch into main checkout
-#   cmux rm [branch]      — Remove worktree (no args = current worktree)
+#   cmux merge [branch]   — Merge worktree branch into primary checkout
+#   cmux rm [branch]      — Remove worktree + branch (no args = current)
 #   cmux rm --all         — Remove ALL worktrees (requires confirmation)
 #   cmux init [--replace] — Generate .cmux/setup hook using Claude
 #   cmux update           — Update cmux to the latest version
@@ -38,12 +38,12 @@ cmux() {
     *)
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|update> [branch]"
       echo ""
-      echo "  new <branch>     Create worktree, run setup hook, launch claude"
-      echo "  start <branch>   Launch claude -c in existing worktree"
+      echo "  new <branch>     New worktree + branch, run setup hook, launch Claude"
+      echo "  start <branch>   Continue where you left off in an existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
-      echo "  merge [branch]   Merge worktree branch into main checkout"
-      echo "  rm [branch]      Remove worktree (no args = current)"
+      echo "  merge [branch]   Merge worktree branch into primary checkout"
+      echo "  rm [branch]      Remove worktree + branch (no args = current)"
       echo "  rm --all         Remove ALL worktrees (requires confirmation)"
       echo "  init [--replace] Generate .cmux/setup hook using Claude"
       echo "  update           Update cmux to the latest version"
@@ -668,12 +668,12 @@ _cmux_worktree_names() {
 if [[ -n "$ZSH_VERSION" ]]; then
   _cmux_zsh_complete() {
     local -a subcmds=(
-      'new:Create worktree and launch claude'
-      'start:Launch claude in existing worktree'
+      'new:New worktree + branch, launch Claude'
+      'start:Continue where you left off'
       'cd:cd into worktree'
       'ls:List worktrees'
-      'merge:Merge worktree branch into main'
-      'rm:Remove worktree'
+      'merge:Merge worktree branch into primary checkout'
+      'rm:Remove worktree + branch'
       'init:Generate .cmux/setup hook'
       'update:Update cmux to latest version'
       'version:Show current version'
