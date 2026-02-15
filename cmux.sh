@@ -35,7 +35,7 @@ cmux() {
     init)    _cmux_init "$@" ;;
     update)  _cmux_update "$@" ;;
     version) echo "cmux $CMUX_VERSION" ;;
-    *)
+    --help|-h|"")
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|update> [branch]"
       echo ""
       echo "  new <branch>     New worktree + branch, run setup hook, launch Claude"
@@ -48,6 +48,11 @@ cmux() {
       echo "  init [--replace] Generate .cmux/setup hook using Claude"
       echo "  update           Update cmux to the latest version"
       echo "  version          Show current version"
+      return 0
+      ;;
+    *)
+      echo "Unknown command: $cmd"
+      echo "Run 'cmux --help' for usage."
       return 1
       ;;
   esac
@@ -136,6 +141,12 @@ _cmux_check_update() {
 # ── Subcommands ──────────────────────────────────────────────────────
 
 _cmux_new() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux new <branch>"
+    echo ""
+    echo "  Create a new worktree and branch, run setup hook, and launch Claude Code."
+    return 0
+  fi
   if [[ -z "$1" ]]; then
     echo "Usage: cmux new <branch>"
     return 1
@@ -185,6 +196,12 @@ _cmux_new() {
 }
 
 _cmux_start() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux start <branch>"
+    echo ""
+    echo "  Resume work in an existing worktree by launching Claude Code with --continue."
+    return 0
+  fi
   if [[ -z "$1" ]]; then
     echo "Usage: cmux start <branch>"
     return 1
@@ -208,6 +225,12 @@ _cmux_start() {
 }
 
 _cmux_cd() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux cd [branch]"
+    echo ""
+    echo "  cd into a worktree directory (no args = repo root)."
+    return 0
+  fi
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
@@ -231,6 +254,12 @@ _cmux_cd() {
 }
 
 _cmux_ls() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux ls"
+    echo ""
+    echo "  List all cmux worktrees."
+    return 0
+  fi
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
@@ -238,6 +267,13 @@ _cmux_ls() {
 }
 
 _cmux_merge() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux merge [branch] [--squash]"
+    echo ""
+    echo "  Merge a worktree branch into the primary checkout."
+    echo "  Run with no args from inside a .worktrees/ directory to auto-detect."
+    return 0
+  fi
   local branch=""
   local squash=false
 
@@ -319,6 +355,15 @@ _cmux_merge() {
 }
 
 _cmux_rm() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux rm [branch]"
+    echo "       cmux rm --all"
+    echo ""
+    echo "  Remove a worktree and its branch."
+    echo "  Run with no args from inside a .worktrees/ directory to auto-detect."
+    echo "  Use --all to remove all cmux worktrees (requires confirmation)."
+    return 0
+  fi
   local branch="$1"
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
@@ -441,6 +486,13 @@ _cmux_rm_all() {
 }
 
 _cmux_init() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux init [--replace]"
+    echo ""
+    echo "  Generate a .cmux/setup hook using Claude Code."
+    echo "  Use --replace to regenerate an existing setup hook."
+    return 0
+  fi
   local replace=false
   for arg in "$@"; do
     case "$arg" in
@@ -626,6 +678,12 @@ PROMPT
 }
 
 _cmux_update() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux update"
+    echo ""
+    echo "  Update cmux to the latest version."
+    return 0
+  fi
   local install_path="$HOME/.cmux/cmux.sh"
 
   echo "Checking for updates..."
