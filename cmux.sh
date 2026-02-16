@@ -12,6 +12,7 @@
 #   cmux rm [branch]      — Remove worktree + branch (no args = current, -f to force)
 #   cmux rm --all         — Remove ALL worktrees (requires confirmation)
 #   cmux init [--replace] — Generate .cmux/setup hook using Claude
+#   cmux config           — View or set worktree layout configuration
 #   cmux update           — Update cmux to the latest version
 #   cmux version          — Show current version
 
@@ -33,10 +34,11 @@ cmux() {
     merge)   _cmux_merge "$@" ;;
     rm)      _cmux_rm "$@" ;;
     init)    _cmux_init "$@" ;;
+    config)  _cmux_config "$@" ;;
     update)  _cmux_update "$@" ;;
     version) echo "cmux $CMUX_VERSION" ;;
     --help|-h|"")
-      echo "Usage: cmux <new|start|cd|ls|merge|rm|init|update> [branch]"
+      echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update> [branch]"
       echo ""
       echo "  new <branch>     New worktree + branch, run setup hook, launch Claude"
       echo "  start <branch>   Continue where you left off in an existing worktree"
@@ -46,6 +48,7 @@ cmux() {
       echo "  rm [branch]      Remove worktree + branch (no args = current, -f to force)"
       echo "  rm --all         Remove ALL worktrees (requires confirmation)"
       echo "  init [--replace] Generate .cmux/setup hook using Claude"
+      echo "  config           View or set worktree layout configuration"
       echo "  update           Update cmux to the latest version"
       echo "  version          Show current version"
       return 0
@@ -73,11 +76,97 @@ _cmux_safe_name() {
   echo "${1//\//-}"
 }
 
+# Read layout config: per-project > global > default (nested)
+_cmux_get_layout() {
+  local repo_root="$1"
+  local layout=""
+  # Per-project config
+  if [[ -n "$repo_root" && -f "$repo_root/.cmux/config.json" ]]; then
+    layout="$(grep '"layout"' "$repo_root/.cmux/config.json" 2>/dev/null | sed 's/.*"layout"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+  fi
+  # Global config fallback
+  if [[ -z "$layout" && -f "$HOME/.cmux/config.json" ]]; then
+    layout="$(grep '"layout"' "$HOME/.cmux/config.json" 2>/dev/null | sed 's/.*"layout"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+  fi
+  # Default
+  echo "${layout:-nested}"
+}
+
+# Return the base directory that contains worktrees
+_cmux_worktree_base() {
+  local repo_root="$1"
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
+  case "$layout" in
+    outer-nested) echo "$(dirname "$repo_root")/$(basename "$repo_root").worktrees" ;;
+    sibling)      echo "$(dirname "$repo_root")" ;;
+    *)            echo "$repo_root/.worktrees" ;;
+  esac
+}
+
 # Resolve worktree directory for a branch
 _cmux_worktree_dir() {
   local repo_root="$1"
   local safe_name="$(_cmux_safe_name "$2")"
-  echo "$repo_root/.worktrees/$safe_name"
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
+  case "$layout" in
+    outer-nested) echo "$(dirname "$repo_root")/$(basename "$repo_root").worktrees/$safe_name" ;;
+    sibling)      echo "$(dirname "$repo_root")/$(basename "$repo_root")-$safe_name" ;;
+    *)            echo "$repo_root/.worktrees/$safe_name" ;;
+  esac
+}
+
+# Detect branch name from current worktree directory
+_cmux_detect_worktree_branch() {
+  local repo_root="$1"
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
+  local base safe_name wt_dir
+
+  case "$layout" in
+    outer-nested)
+      base="$(dirname "$repo_root")/$(basename "$repo_root").worktrees"
+      if [[ "$PWD" == "$base/"* ]]; then
+        safe_name="${PWD#$base/}"
+        safe_name="${safe_name%%/*}"
+        wt_dir="$base/$safe_name"
+      fi
+      ;;
+    sibling)
+      local repo_name
+      repo_name="$(basename "$repo_root")"
+      local parent
+      parent="$(dirname "$repo_root")"
+      local current_dir
+      current_dir="$(basename "$PWD")"
+      # Strip subdirs: get the top-level sibling dir
+      local check_dir="$PWD"
+      while [[ "$(dirname "$check_dir")" != "$parent" && "$check_dir" != "/" ]]; do
+        check_dir="$(dirname "$check_dir")"
+      done
+      current_dir="$(basename "$check_dir")"
+      if [[ "$current_dir" == "${repo_name}-"* && "$check_dir" != "$repo_root" ]]; then
+        safe_name="${current_dir#${repo_name}-}"
+        wt_dir="$parent/$current_dir"
+      fi
+      ;;
+    *)  # nested
+      if [[ "$PWD" == */.worktrees/* ]]; then
+        safe_name="${PWD##*/.worktrees/}"
+        safe_name="${safe_name%%/*}"
+        wt_dir="$repo_root/.worktrees/$safe_name"
+      fi
+      ;;
+  esac
+
+  [[ -z "$safe_name" ]] && return 1
+
+  # Resolve actual branch name from git worktree list
+  git -C "$repo_root" worktree list --porcelain \
+    | grep -A2 "^worktree ${wt_dir}\$" \
+    | grep '^branch ' \
+    | sed 's|^branch refs/heads/||'
 }
 
 _cmux_spinner_start() {
@@ -164,8 +253,14 @@ _cmux_new() {
     echo "Worktree already exists: $worktree_dir"
     cd "$worktree_dir"
   else
-    # Ensure .worktrees directory exists
-    mkdir -p "$repo_root/.worktrees"
+    # Ensure worktree base directory exists
+    local base_dir
+    base_dir="$(_cmux_worktree_base "$repo_root")"
+    local layout
+    layout="$(_cmux_get_layout "$repo_root")"
+    if [[ "$layout" != "sibling" ]]; then
+      mkdir -p "$base_dir"
+    fi
     git -C "$repo_root" worktree add "$worktree_dir" -b "$branch" || return 1
     cd "$worktree_dir"
 
@@ -263,7 +358,15 @@ _cmux_ls() {
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
-  git -C "$repo_root" worktree list | grep '\.worktrees/'
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
+  local filter
+  case "$layout" in
+    outer-nested) filter="$(dirname "$repo_root")/$(basename "$repo_root").worktrees/" ;;
+    sibling)      filter="$(dirname "$repo_root")/$(basename "$repo_root")-" ;;
+    *)            filter="$(_cmux_worktree_base "$repo_root")/" ;;
+  esac
+  git -C "$repo_root" worktree list | grep -F "$filter"
 }
 
 _cmux_merge() {
@@ -290,20 +393,10 @@ _cmux_merge() {
 
   # No branch arg: detect from current worktree
   if [[ -z "$branch" ]]; then
-    if [[ "$PWD" == */.worktrees/* ]]; then
-      local safe_name="${PWD##*/.worktrees/}"
-      safe_name="${safe_name%%/*}"
-      branch="$(git -C "$repo_root" worktree list --porcelain \
-        | grep -A2 "$repo_root/.worktrees/$safe_name\$" \
-        | grep '^branch ' \
-        | sed 's|^branch refs/heads/||')"
-      if [[ -z "$branch" ]]; then
-        echo "Could not detect branch for current worktree."
-        return 1
-      fi
-    else
+    branch="$(_cmux_detect_worktree_branch "$repo_root")"
+    if [[ -z "$branch" ]]; then
       echo "Usage: cmux merge <branch> [--squash]"
-      echo "  (or run with no args from inside a .worktrees/ directory)"
+      echo "  (or run with no args from inside a worktree directory)"
       return 1
     fi
   fi
@@ -387,23 +480,12 @@ _cmux_rm() {
 
   # No args: detect current worktree
   if [[ -z "$branch" ]]; then
-    if [[ "$PWD" == */.worktrees/* ]]; then
-      local safe_name="${PWD##*/.worktrees/}"
-      # Strip any trailing path components
-      safe_name="${safe_name%%/*}"
-      # We need to find the actual branch name from git worktree list
-      branch="$(git -C "$repo_root" worktree list --porcelain \
-        | grep -A2 "$repo_root/.worktrees/$safe_name\$" \
-        | grep '^branch ' \
-        | sed 's|^branch refs/heads/||')"
-      if [[ -z "$branch" ]]; then
-        echo "Could not detect branch for current worktree"
-        return 1
-      fi
-    else
-      echo "Usage: cmux rm <branch>  (or run with no args from inside a .worktrees/ directory)"
+    branch="$(_cmux_detect_worktree_branch "$repo_root")"
+    if [[ -z "$branch" ]]; then
+      echo "Usage: cmux rm <branch>  (or run with no args from inside a worktree directory)"
       return 1
     fi
+    cd "$repo_root"
   fi
 
   local worktree_dir
@@ -437,12 +519,23 @@ _cmux_rm() {
 
 _cmux_rm_all() {
   local repo_root="$1"
-  local worktrees_dir="$repo_root/.worktrees"
+  local base_dir
+  base_dir="$(_cmux_worktree_base "$repo_root")"
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
 
-  if [[ ! -d "$worktrees_dir" ]]; then
-    echo "No .worktrees directory found."
+  if [[ "$layout" != "sibling" && ! -d "$base_dir" ]]; then
+    echo "No worktrees directory found."
     return 0
   fi
+
+  # Build filter pattern for finding cmux worktrees
+  local filter
+  case "$layout" in
+    outer-nested) filter="$(dirname "$repo_root")/$(basename "$repo_root").worktrees/" ;;
+    sibling)      filter="$(dirname "$repo_root")/$(basename "$repo_root")-" ;;
+    *)            filter="$base_dir/" ;;
+  esac
 
   # Collect worktree info: pairs of (directory, branch)
   local dirs=()
@@ -457,7 +550,7 @@ _cmux_rm_all() {
       | sed 's|^branch refs/heads/||')"
     dirs+=("$wt_dir")
     branches+=("${wt_branch:-unknown}")
-  done < <(git -C "$repo_root" worktree list | grep '\.worktrees/')
+  done < <(git -C "$repo_root" worktree list | grep -F "$filter")
 
   local count=${#dirs[@]}
 
@@ -485,7 +578,7 @@ _cmux_rm_all() {
   fi
 
   # If user is inside a worktree, cd out first
-  if [[ "$PWD" == "$worktrees_dir"* ]]; then
+  if _cmux_detect_worktree_branch "$repo_root" &>/dev/null; then
     cd "$repo_root"
   fi
 
@@ -702,6 +795,100 @@ PROMPT
   done
 }
 
+_cmux_config() {
+  local repo_root
+  repo_root="$(_cmux_repo_root 2>/dev/null)"
+
+  # No args: show effective layout
+  if [[ -z "$1" ]]; then
+    local layout source
+    if [[ -n "$repo_root" && -f "$repo_root/.cmux/config.json" ]] \
+       && grep -q '"layout"' "$repo_root/.cmux/config.json" 2>/dev/null; then
+      layout="$(grep '"layout"' "$repo_root/.cmux/config.json" | sed 's/.*"layout"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+      source="$repo_root/.cmux/config.json"
+    elif [[ -f "$HOME/.cmux/config.json" ]] \
+       && grep -q '"layout"' "$HOME/.cmux/config.json" 2>/dev/null; then
+      layout="$(grep '"layout"' "$HOME/.cmux/config.json" | sed 's/.*"layout"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+      source="~/.cmux/config.json"
+    else
+      layout="nested"
+      source="default"
+    fi
+    echo "layout=$layout (source: $source)"
+    return 0
+  fi
+
+  if [[ "$1" != "set" ]]; then
+    echo "Usage: cmux config                               Show effective layout"
+    echo "       cmux config set layout <preset>            Set per-project"
+    echo "       cmux config set layout <preset> --global   Set global default"
+    echo ""
+    echo "Presets: nested, outer-nested, sibling"
+    return 1
+  fi
+  shift
+
+  local global=false
+  local key="" preset=""
+  for arg in "$@"; do
+    case "$arg" in
+      --global) global=true ;;
+      layout)   key="layout" ;;
+      *)        preset="$arg" ;;
+    esac
+  done
+
+  if [[ "$key" != "layout" || -z "$preset" ]]; then
+    echo "Usage: cmux config set layout <preset> [--global]"
+    return 1
+  fi
+  case "$preset" in
+    nested|outer-nested|sibling) ;;
+    *)
+      echo "Invalid layout: $preset"
+      echo "Valid presets: nested, outer-nested, sibling"
+      return 1
+      ;;
+  esac
+
+  local config_file
+  if [[ "$global" == true ]]; then
+    config_file="$HOME/.cmux/config.json"
+  else
+    if [[ -z "$repo_root" ]]; then
+      echo "Not in a git repo. Use --global to set globally."
+      return 1
+    fi
+    config_file="$repo_root/.cmux/config.json"
+    mkdir -p "$repo_root/.cmux"
+  fi
+
+  # Warn if worktrees exist
+  if [[ -n "$repo_root" ]]; then
+    local base_dir
+    base_dir="$(_cmux_worktree_base "$repo_root")"
+    local existing
+    existing="$(git -C "$repo_root" worktree list 2>/dev/null | grep -F "$base_dir/" | wc -l | tr -d ' ')"
+    if [[ "$existing" -gt 0 ]]; then
+      echo "Warning: $existing existing worktrees use the current layout."
+      echo "Changing layout won't move them. Remove them first with 'cmux rm --all'."
+    fi
+  fi
+
+  # Write config as JSON
+  if [[ -f "$config_file" ]] && grep -q '"layout"' "$config_file" 2>/dev/null; then
+    local tmp
+    tmp="$(mktemp)"
+    sed 's/"layout"[[:space:]]*:[[:space:]]*"[^"]*"/"layout": "'"$preset"'"/' "$config_file" > "$tmp" && mv "$tmp" "$config_file"
+  else
+    printf '{\n  "layout": "%s"\n}\n' "$preset" > "$config_file"
+  fi
+
+  local target="per-project"
+  [[ "$global" == true ]] && target="global"
+  echo "Set $target layout to: $preset"
+}
+
 _cmux_update() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "Usage: cmux update"
@@ -742,8 +929,16 @@ _cmux_update() {
 _cmux_worktree_names() {
   local repo_root
   repo_root="$(_cmux_repo_root 2>/dev/null)" || return
+  local layout
+  layout="$(_cmux_get_layout "$repo_root")"
+  local prefix
+  case "$layout" in
+    outer-nested) prefix="$(dirname "$repo_root")/$(basename "$repo_root").worktrees/" ;;
+    sibling)      prefix="$(dirname "$repo_root")/$(basename "$repo_root")-" ;;
+    *)            prefix="$(_cmux_worktree_base "$repo_root")/" ;;
+  esac
   git -C "$repo_root" worktree list --porcelain 2>/dev/null \
-    | awk -v prefix="$repo_root/.worktrees/" '
+    | awk -v prefix="$prefix" '
         /^worktree / { wt=substr($0,10); in_wt=(index(wt,prefix)==1) }
         /^branch / && in_wt { sub(/^branch refs\/heads\//,""); print }'
 }
@@ -758,6 +953,7 @@ if [[ -n "$ZSH_VERSION" ]]; then
       'merge:Merge worktree branch into primary checkout'
       'rm:Remove worktree + branch'
       'init:Generate .cmux/setup hook'
+      'config:View or set configuration'
       'update:Update cmux to latest version'
       'version:Show current version'
     )
@@ -777,6 +973,33 @@ if [[ -n "$ZSH_VERSION" ]]; then
         init)
           compadd -- --replace
           ;;
+        config)
+          compadd -- set
+          ;;
+      esac
+    elif (( CURRENT == 4 )); then
+      case "${words[2]}" in
+        config)
+          if [[ "${words[3]}" == "set" ]]; then
+            compadd -- layout
+          fi
+          ;;
+      esac
+    elif (( CURRENT == 5 )); then
+      case "${words[2]}" in
+        config)
+          if [[ "${words[3]}" == "set" && "${words[4]}" == "layout" ]]; then
+            compadd -- nested outer-nested sibling
+          fi
+          ;;
+      esac
+    elif (( CURRENT == 6 )); then
+      case "${words[2]}" in
+        config)
+          if [[ "${words[3]}" == "set" && "${words[4]}" == "layout" ]]; then
+            compadd -- --global
+          fi
+          ;;
       esac
     fi
   }
@@ -788,7 +1011,7 @@ elif [[ -n "$BASH_VERSION" ]]; then
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
     if (( COMP_CWORD == 1 )); then
-      COMPREPLY=( $(compgen -W "new start cd ls merge rm init update version" -- "$cur") )
+      COMPREPLY=( $(compgen -W "new start cd ls merge rm init config update version" -- "$cur") )
     elif (( COMP_CWORD == 2 )); then
       case "$prev" in
         start|cd|merge)
@@ -800,7 +1023,24 @@ elif [[ -n "$BASH_VERSION" ]]; then
         init)
           COMPREPLY=( $(compgen -W "--replace" -- "$cur") )
           ;;
+        config)
+          COMPREPLY=( $(compgen -W "set" -- "$cur") )
+          ;;
       esac
+    elif (( COMP_CWORD == 3 )); then
+      if [[ "${COMP_WORDS[1]}" == "config" && "${COMP_WORDS[2]}" == "set" ]]; then
+        COMPREPLY=( $(compgen -W "layout" -- "$cur") )
+      fi
+    elif (( COMP_CWORD == 4 )); then
+      if [[ "${COMP_WORDS[1]}" == "config" && "${COMP_WORDS[2]}" == "set" \
+         && "${COMP_WORDS[3]}" == "layout" ]]; then
+        COMPREPLY=( $(compgen -W "nested outer-nested sibling" -- "$cur") )
+      fi
+    elif (( COMP_CWORD == 5 )); then
+      if [[ "${COMP_WORDS[1]}" == "config" && "${COMP_WORDS[2]}" == "set" \
+         && "${COMP_WORDS[3]}" == "layout" ]]; then
+        COMPREPLY=( $(compgen -W "--global" -- "$cur") )
+      fi
     fi
   }
   complete -F _cmux_bash_complete cmux
