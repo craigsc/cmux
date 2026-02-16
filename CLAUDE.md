@@ -37,3 +37,13 @@ cmux is a pure Bash shell tool that manages git worktree lifecycles for running 
 - Zsh compatibility: uses `setopt localoptions nomonitor` where needed for job control
 - Error handling: validate inputs, check `command -v`, guard with `|| return 1`
 - No `set -e` in cmux.sh (it's sourced, not executed); install.sh uses `set -e`
+
+## QA — mandatory before considering any task done
+
+Always self-test changes to cmux.sh before finishing work. Source the file in a bash subshell and run the affected commands to verify correct output and behavior:
+
+```bash
+bash -c 'source /path/to/cmux.sh && cmux <subcommand> [args]'
+```
+
+Test thoroughly: check happy paths, error paths, flag combinations, and edge cases (no args, bad input, missing worktrees, etc.). Do not consider a task complete until you have verified the changes work.

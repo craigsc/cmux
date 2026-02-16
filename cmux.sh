@@ -9,7 +9,7 @@
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
 #   cmux merge [branch]   — Merge worktree branch into primary checkout
-#   cmux rm [branch]      — Remove worktree + branch (no args = current)
+#   cmux rm [branch]      — Remove worktree + branch (no args = current, -f to force)
 #   cmux rm --all         — Remove ALL worktrees (requires confirmation)
 #   cmux init [--replace] — Generate .cmux/setup hook using Claude
 #   cmux update           — Update cmux to the latest version
@@ -43,7 +43,7 @@ cmux() {
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  merge [branch]   Merge worktree branch into primary checkout"
-      echo "  rm [branch]      Remove worktree + branch (no args = current)"
+      echo "  rm [branch]      Remove worktree + branch (no args = current, -f to force)"
       echo "  rm --all         Remove ALL worktrees (requires confirmation)"
       echo "  init [--replace] Generate .cmux/setup hook using Claude"
       echo "  update           Update cmux to the latest version"
@@ -356,15 +356,26 @@ _cmux_merge() {
 
 _cmux_rm() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux rm [branch]"
+    echo "Usage: cmux rm [branch] [-f|--force]"
     echo "       cmux rm --all"
     echo ""
     echo "  Remove a worktree and its branch."
     echo "  Run with no args from inside a .worktrees/ directory to auto-detect."
+    echo "  Use -f/--force to remove a worktree with uncommitted changes."
     echo "  Use --all to remove all cmux worktrees (requires confirmation)."
     return 0
   fi
-  local branch="$1"
+  local force=false
+  local branch=""
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --force|-f) force=true ;;
+      --all)      branch="--all" ;;
+      *)          branch="$arg" ;;
+    esac
+  done
+
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
@@ -389,7 +400,6 @@ _cmux_rm() {
         echo "Could not detect branch for current worktree"
         return 1
       fi
-      cd "$repo_root"
     else
       echo "Usage: cmux rm <branch>  (or run with no args from inside a .worktrees/ directory)"
       return 1
@@ -404,10 +414,25 @@ _cmux_rm() {
     return 1
   fi
 
-  git -C "$repo_root" worktree remove "$worktree_dir" && \
-    git -C "$repo_root" branch -d "$branch" 2>/dev/null
+  local remove_args=("$worktree_dir")
+  if $force; then
+    remove_args=("--force" "${remove_args[@]}")
+  fi
 
-  echo "Removed worktree and branch: $branch"
+  if git -C "$repo_root" worktree remove "${remove_args[@]}"; then
+    git -C "$repo_root" branch -d "$branch" 2>/dev/null
+    # If we were inside the removed worktree, cd out
+    if [[ "$PWD" == "$worktree_dir"* ]]; then
+      cd "$repo_root"
+    fi
+    echo "Removed worktree and branch: $branch"
+  else
+    echo "Failed to remove worktree: $branch"
+    if ! $force; then
+      echo "Hint: use 'cmux rm --force $branch' to remove a worktree with uncommitted changes"
+    fi
+    return 1
+  fi
 }
 
 _cmux_rm_all() {
