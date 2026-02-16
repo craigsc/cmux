@@ -4,8 +4,8 @@
 # Each agent gets its own worktree — no conflicts, one command each.
 #
 # Commands:
-#   cmux new <branch>     — New worktree + branch, run setup hook, launch Claude
-#   cmux start <branch>   — Continue where you left off in an existing worktree
+#   cmux new <branch> [-p <prompt>]   — New worktree + branch, run setup hook, launch Claude
+#   cmux start <branch> [-p <prompt>] — Continue where you left off in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
 #   cmux merge [branch]   — Merge worktree branch into primary checkout
@@ -38,8 +38,8 @@ cmux() {
     --help|-h|"")
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|update> [branch]"
       echo ""
-      echo "  new <branch>     New worktree + branch, run setup hook, launch Claude"
-      echo "  start <branch>   Continue where you left off in an existing worktree"
+      echo "  new <branch> [-p <prompt>]     New worktree + branch, run setup hook, launch Claude"
+      echo "  start <branch> [-p <prompt>]   Continue where you left off in an existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  merge [branch]   Merge worktree branch into primary checkout"
@@ -142,17 +142,31 @@ _cmux_check_update() {
 
 _cmux_new() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux new <branch>"
+    echo "Usage: cmux new <branch> [-p <prompt>]"
     echo ""
     echo "  Create a new worktree and branch, run setup hook, and launch Claude Code."
+    echo "  Use -p to pass an initial prompt to Claude."
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux new <branch>"
+    echo "Usage: cmux new <branch> [-p <prompt>]"
     return 1
   fi
 
-  local branch="${*// /-}"
+  local prompt=""
+  local branch_words=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -p) prompt="$2"; shift 2 ;;
+      *)  branch_words+=("$1"); shift ;;
+    esac
+  done
+  local branch="${branch_words[*]// /-}"
+
+  if [[ -z "$branch" ]]; then
+    echo "Usage: cmux new <branch> [-p <prompt>]"
+    return 1
+  fi
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
@@ -192,22 +206,39 @@ _cmux_new() {
   fi
 
   echo "Worktree ready: $worktree_dir"
-  claude
+  if [[ -n "$prompt" ]]; then
+    claude "$prompt"
+  else
+    claude
+  fi
 }
 
 _cmux_start() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux start <branch>"
+    echo "Usage: cmux start <branch> [-p <prompt>]"
     echo ""
     echo "  Resume work in an existing worktree by launching Claude Code with --continue."
+    echo "  Use -p to pass an initial prompt to Claude."
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux start <branch>"
+    echo "Usage: cmux start <branch> [-p <prompt>]"
     return 1
   fi
 
-  local branch="$1"
+  local prompt=""
+  local branch=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -p) prompt="$2"; shift 2 ;;
+      *)  branch="$1"; shift ;;
+    esac
+  done
+
+  if [[ -z "$branch" ]]; then
+    echo "Usage: cmux start <branch> [-p <prompt>]"
+    return 1
+  fi
   local repo_root
   repo_root="$(_cmux_repo_root)" || { echo "Not in a git repo"; return 1; }
 
@@ -221,7 +252,11 @@ _cmux_start() {
   fi
 
   cd "$worktree_dir"
-  claude -c
+  if [[ -n "$prompt" ]]; then
+    claude -c "$prompt"
+  else
+    claude -c
+  fi
 }
 
 _cmux_cd() {
