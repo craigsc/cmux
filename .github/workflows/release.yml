@@ -20,3 +20,4 @@ jobs:
           files: |
             cmux.sh
             VERSION
+            install.sh
