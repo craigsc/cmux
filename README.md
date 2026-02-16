@@ -11,7 +11,7 @@ You wanna go fast without losing your goddamn mind. This is how.
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/craigsc/cmux/main/install.sh | sh
+curl -fsSL https://github.com/craigsc/cmux/releases/latest/download/install.sh | sh
 ```
 
 Then add `.worktrees/` to your `.gitignore`:
