@@ -13,6 +13,9 @@ echo "Downloading cmux..."
 curl -fsSL "$RELEASE_URL/cmux.sh" -o "$INSTALL_PATH"
 curl -fsSL "$RELEASE_URL/VERSION" | tr -d '[:space:]' > "$INSTALL_DIR/VERSION"
 
+# Clear stale update-check cache from any previous install
+rm -f "$INSTALL_DIR/.latest_version" "$INSTALL_DIR/.last_check"
+
 # Detect shell rc file
 case "$SHELL" in
   */zsh)  RC_FILE="$HOME/.zshrc" ;;
