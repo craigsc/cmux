@@ -111,6 +111,12 @@ You never have to remember branch names. Built-in completion for bash and zsh �
 - `cmux merge <TAB>` — worktree branches
 - `cmux init <TAB>` — `--replace`
 
+## Community
+
+| Project | Description |
+|---------|-------------|
+| [claude-orchestration-in-cmux](https://github.com/baixianger/claude-orchestration-in-cmux) | Claude Code skill that turns one session into an orchestrator -- discovers panes, delegates tasks to other Claude sessions, monitors progress via screen polling, and manages the full commit-merge-rebase cycle with worktree isolation. |
+
 ## License
 
 MIT
