@@ -4,8 +4,8 @@
 # Each agent gets its own worktree — no conflicts, one command each.
 #
 # Commands:
-#   cmux new <branch> [-p <prompt>]   — New worktree + branch, run setup hook, launch Claude
-#   cmux start <branch> [-p <prompt>] — Continue where you left off in an existing worktree
+#   cmux new <branch> [-p <prompt>] [-- <claude-args>]   — New worktree + branch, run setup hook, launch Claude
+#   cmux start <branch> [-p <prompt>] [-- <claude-args>] — Continue where you left off in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
 #   cmux merge [branch]   — Merge worktree branch into primary checkout
@@ -40,8 +40,8 @@ cmux() {
     --help|-h|"")
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update> [branch]"
       echo ""
-      echo "  new <branch> [-p <prompt>]     New worktree + branch, run setup hook, launch Claude"
-      echo "  start <branch> [-p <prompt>]   Continue where you left off in an existing worktree"
+      echo "  new <branch> [-p <prompt>] [-- <claude-args>]   New worktree + branch, run setup hook, launch Claude"
+      echo "  start <branch> [-p <prompt>] [-- <claude-args>] Continue where you left off in an existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  merge [branch]   Merge worktree branch into primary checkout"
@@ -232,29 +232,38 @@ _cmux_check_update() {
 
 _cmux_new() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>]"
+    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
     echo ""
     echo "  Create a new worktree and branch, run setup hook, and launch Claude Code."
     echo "  Use -p to pass an initial prompt to Claude."
+    echo "  Use -- to pass additional arguments directly to the claude invocation."
+    echo "  Example: cmux new my-branch -- --dangerously-skip-permissions"
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>]"
+    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
 
   local prompt=""
+  local claude_args=()
   local branch_words=()
+  local found_dashdash=false
   while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -p) prompt="$2"; shift 2 ;;
-      *)  branch_words+=("$1"); shift ;;
-    esac
+    if [[ "$found_dashdash" == true ]]; then
+      claude_args+=("$1"); shift
+    else
+      case "$1" in
+        --) found_dashdash=true; shift ;;
+        -p) prompt="$2"; shift 2 ;;
+        *)  branch_words+=("$1"); shift ;;
+      esac
+    fi
   done
   local branch="${branch_words[*]// /-}"
 
   if [[ -z "$branch" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>]"
+    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
   local repo_root
@@ -303,36 +312,45 @@ _cmux_new() {
 
   echo "Worktree ready: $worktree_dir"
   if [[ -n "$prompt" ]]; then
-    claude "$prompt"
+    claude "${claude_args[@]}" "$prompt"
   else
-    claude
+    claude "${claude_args[@]}"
   fi
 }
 
 _cmux_start() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux start <branch> [-p <prompt>]"
+    echo "Usage: cmux start <branch> [-p <prompt>] [-- <claude-args>]"
     echo ""
     echo "  Resume work in an existing worktree by launching Claude Code with --continue."
     echo "  Use -p to pass an initial prompt to Claude."
+    echo "  Use -- to pass additional arguments directly to the claude invocation."
+    echo "  Example: cmux start my-branch -- --dangerously-skip-permissions"
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux start <branch> [-p <prompt>]"
+    echo "Usage: cmux start <branch> [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
 
   local prompt=""
+  local claude_args=()
   local branch=""
+  local found_dashdash=false
   while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -p) prompt="$2"; shift 2 ;;
-      *)  branch="$1"; shift ;;
-    esac
+    if [[ "$found_dashdash" == true ]]; then
+      claude_args+=("$1"); shift
+    else
+      case "$1" in
+        --) found_dashdash=true; shift ;;
+        -p) prompt="$2"; shift 2 ;;
+        *)  branch="$1"; shift ;;
+      esac
+    fi
   done
 
   if [[ -z "$branch" ]]; then
-    echo "Usage: cmux start <branch> [-p <prompt>]"
+    echo "Usage: cmux start <branch> [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
   local repo_root
@@ -349,9 +367,9 @@ _cmux_start() {
 
   cd "$worktree_dir"
   if [[ -n "$prompt" ]]; then
-    claude -c "$prompt"
+    claude -c "${claude_args[@]}" "$prompt"
   else
-    claude -c
+    claude -c "${claude_args[@]}"
   fi
 }
 
