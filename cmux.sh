@@ -4,8 +4,8 @@
 # Each agent gets its own worktree — no conflicts, one command each.
 #
 # Commands:
-#   cmux new <branch> [-p <prompt>]   — New worktree + branch, run setup hook, launch Claude
-#   cmux start <branch> [-p <prompt>] — Continue where you left off in an existing worktree
+#   cmux new <branch> [-b] [-p <prompt>]   — New worktree + branch, run setup hook, launch Claude
+#   cmux start <branch> [-b] [-p <prompt>] — Continue where you left off in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
 #   cmux merge [branch]   — Merge worktree branch into primary checkout
@@ -40,8 +40,8 @@ cmux() {
     --help|-h|"")
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update> [branch]"
       echo ""
-      echo "  new <branch> [-p <prompt>]     New worktree + branch, run setup hook, launch Claude"
-      echo "  start <branch> [-p <prompt>]   Continue where you left off in an existing worktree"
+      echo "  new <branch> [-b] [-p <prompt>]     New worktree + branch, run setup hook, launch Claude"
+      echo "  start <branch> [-b] [-p <prompt>]   Continue where you left off in an existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  merge [branch]   Merge worktree branch into primary checkout"
@@ -232,21 +232,26 @@ _cmux_check_update() {
 
 _cmux_new() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>]"
+    echo "Usage: cmux new <branch> [-b] [-p <prompt>]"
     echo ""
     echo "  Create a new worktree and branch, run setup hook, and launch Claude Code."
+    echo "  Use -b/--bypass to launch Claude with --dangerously-skip-permissions."
     echo "  Use -p to pass an initial prompt to Claude."
+    echo ""
+    echo "  Set CMUX_BYPASS=1 to enable bypass mode by default."
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>]"
+    echo "Usage: cmux new <branch> [-b] [-p <prompt>]"
     return 1
   fi
 
   local prompt=""
+  local bypass="${CMUX_BYPASS:-}"
   local branch_words=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      -b|--bypass) bypass=1; shift ;;
       -p) prompt="$2"; shift 2 ;;
       *)  branch_words+=("$1"); shift ;;
     esac
@@ -302,30 +307,37 @@ _cmux_new() {
   fi
 
   echo "Worktree ready: $worktree_dir"
+  local claude_args=()
+  [[ -n "$bypass" ]] && claude_args+=(--dangerously-skip-permissions)
   if [[ -n "$prompt" ]]; then
-    claude "$prompt"
+    claude "${claude_args[@]}" "$prompt"
   else
-    claude
+    claude "${claude_args[@]}"
   fi
 }
 
 _cmux_start() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux start <branch> [-p <prompt>]"
+    echo "Usage: cmux start <branch> [-b] [-p <prompt>]"
     echo ""
     echo "  Resume work in an existing worktree by launching Claude Code with --continue."
+    echo "  Use -b/--bypass to launch Claude with --dangerously-skip-permissions."
     echo "  Use -p to pass an initial prompt to Claude."
+    echo ""
+    echo "  Set CMUX_BYPASS=1 to enable bypass mode by default."
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux start <branch> [-p <prompt>]"
+    echo "Usage: cmux start <branch> [-b] [-p <prompt>]"
     return 1
   fi
 
   local prompt=""
+  local bypass="${CMUX_BYPASS:-}"
   local branch=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      -b|--bypass) bypass=1; shift ;;
       -p) prompt="$2"; shift 2 ;;
       *)  branch="$1"; shift ;;
     esac
@@ -348,10 +360,12 @@ _cmux_start() {
   fi
 
   cd "$worktree_dir"
+  local claude_args=()
+  [[ -n "$bypass" ]] && claude_args+=(--dangerously-skip-permissions)
   if [[ -n "$prompt" ]]; then
-    claude -c "$prompt"
+    claude "${claude_args[@]}" -c "$prompt"
   else
-    claude -c
+    claude "${claude_args[@]}" -c
   fi
 }
 
@@ -1012,7 +1026,15 @@ if [[ -n "$ZSH_VERSION" ]]; then
       _describe 'cmux command' subcmds
     elif (( CURRENT == 3 )); then
       case "${words[2]}" in
-        start|cd|merge)
+        new)
+          compadd -- -b --bypass
+          ;;
+        start)
+          local -a names=( ${(f)"$(_cmux_worktree_names)"} )
+          compadd -a names
+          compadd -- -b --bypass
+          ;;
+        cd|merge)
           local -a names=( ${(f)"$(_cmux_worktree_names)"} )
           compadd -a names
           ;;
@@ -1065,7 +1087,13 @@ elif [[ -n "$BASH_VERSION" ]]; then
       COMPREPLY=( $(compgen -W "new start cd ls merge rm init config update version" -- "$cur") )
     elif (( COMP_CWORD == 2 )); then
       case "$prev" in
-        start|cd|merge)
+        new)
+          COMPREPLY=( $(compgen -W "-b --bypass" -- "$cur") )
+          ;;
+        start)
+          COMPREPLY=( $(compgen -W "$(_cmux_worktree_names) -b --bypass" -- "$cur") )
+          ;;
+        cd|merge)
           COMPREPLY=( $(compgen -W "$(_cmux_worktree_names)" -- "$cur") )
           ;;
         rm)
