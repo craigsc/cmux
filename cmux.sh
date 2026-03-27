@@ -388,7 +388,10 @@ _cmux_ls() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
     echo "Usage: cmux ls"
     echo ""
-    echo "  List all cmux worktrees."
+    echo "  List all cmux worktrees with merge status."
+    echo "  Status indicators:"
+    echo "    [merged]    Branch is fully merged into the primary branch"
+    echo "    [ahead N]   Branch is N commits ahead of the primary branch"
     return 0
   fi
   local repo_root
@@ -402,7 +405,31 @@ _cmux_ls() {
     sibling)      filter="$(dirname "$repo_root")/$(basename "$repo_root")-" ;;
     *)            filter="$(_cmux_worktree_base "$repo_root")/" ;;
   esac
-  git -C "$repo_root" worktree list | grep -F "$filter"
+
+  # Determine the primary branch for merge status comparison
+  local primary_branch
+  primary_branch="$(git -C "$repo_root" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+
+  while IFS= read -r line; do
+    # Extract branch name from worktree list output (format: /path  hash [branch])
+    local branch
+    branch="$(echo "$line" | sed -n 's/.*\[\(.*\)\].*/\1/p')"
+
+    if [[ -n "$branch" && -n "$primary_branch" && "$branch" != "$primary_branch" ]]; then
+      local ahead
+      ahead="$(git -C "$repo_root" rev-list --count "$primary_branch".."$branch" 2>/dev/null)"
+
+      if [[ "$ahead" == "0" ]]; then
+        echo "$line  [merged]"
+      elif [[ -n "$ahead" ]]; then
+        echo "$line  [ahead $ahead]"
+      else
+        echo "$line"
+      fi
+    else
+      echo "$line"
+    fi
+  done < <(git -C "$repo_root" worktree list | grep -F "$filter")
 }
 
 _cmux_merge() {
