@@ -32,7 +32,7 @@ That's it. One command, one agent, fully isolated. See [Workflow](#workflow) for
 
 | Command | What it does |
 |---------|-------------|
-| `cmux new <branch>` | Create **new** worktree + branch, run setup hook, launch Claude |
+| `cmux new <branch> [--from <base>]` | Create **new** worktree + branch, run setup hook, launch Claude |
 | `cmux start <branch>` | **Continue** where you left off in an existing worktree |
 | `cmux cd [branch]` | cd into a worktree (no args = repo root) |
 | `cmux ls` | List active worktrees |
@@ -61,6 +61,12 @@ Merge the bugfix when it's done:
 ```sh
 cmux merge fix-payments --squash
 cmux rm fix-payments
+```
+
+Need a sub-feature off an existing branch? Use `--from`:
+
+```sh
+cmux new auth-oauth --from feature-auth   # branches from feature-auth instead of main
 ```
 
 Come back tomorrow and pick up the feature work right where you left off:
@@ -96,6 +102,7 @@ See [`examples/`](examples/) for more.
 
 - Worktrees live under `.worktrees/<branch>/` in the repo root
 - Branch names are sanitized: `feature/foo` becomes `feature-foo`
+- `cmux new` branches from the repo's default branch (detected via remote HEAD, then `main`, then `master`). Use `--from <branch>` to branch from a different base
 - `cmux new` is idempotent on the worktree — if it already exists, it skips creation and setup, but still launches a new Claude session
 - `cmux merge` and `cmux rm` with no args detect the current worktree from `$PWD`
 - Pure bash — just git and the Claude CLI

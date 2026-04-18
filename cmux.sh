@@ -4,7 +4,7 @@
 # Each agent gets its own worktree — no conflicts, one command each.
 #
 # Commands:
-#   cmux new <branch> [-p <prompt>] [-- <claude-args>]   — New worktree + branch, run setup hook, launch Claude
+#   cmux new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]   — New worktree + branch, run setup hook, launch Claude
 #   cmux start <branch> [-p <prompt>] [-- <claude-args>] — Continue where you left off in an existing worktree
 #   cmux cd [branch]      — cd into worktree (no args = repo root)
 #   cmux ls               — List worktrees
@@ -40,8 +40,10 @@ cmux() {
     --help|-h|"")
       echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update> [branch]"
       echo ""
-      echo "  new <branch> [-p <prompt>] [-- <claude-args>]     New worktree + branch, run setup hook, launch Claude"
-      echo "  start <branch> [-p <prompt>] [-- <claude-args>]   Continue where you left off in an existing worktree"
+      echo "  new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]"
+      echo "                       New worktree + branch, run setup hook, launch Claude"
+      echo "  start <branch> [-p <prompt>] [-- <claude-args>]"
+      echo "                       Continue where you left off in an existing worktree"
       echo "  cd [branch]      cd into worktree (no args = repo root)"
       echo "  ls               List worktrees"
       echo "  merge [branch]   Merge worktree branch into primary checkout"
@@ -70,6 +72,28 @@ _cmux_repo_root() {
   git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
   # --git-common-dir returns the .git dir; parent is repo root
   realpath "$(dirname "$git_common_dir")"
+}
+
+# Detect the repo's default branch (main, master, etc.)
+_cmux_default_branch() {
+  local repo_root="$1"
+  local ref
+  # Try remote HEAD first
+  ref="$(git -C "$repo_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null)" && {
+    echo "${ref##*/}"
+    return 0
+  }
+  # Fallback: check for common default branch names locally
+  if git -C "$repo_root" show-ref --verify --quiet refs/heads/main 2>/dev/null; then
+    echo "main"
+    return 0
+  fi
+  if git -C "$repo_root" show-ref --verify --quiet refs/heads/master 2>/dev/null; then
+    echo "master"
+    return 0
+  fi
+  echo "Could not determine default branch. Use --from <branch> to specify." >&2
+  return 1
 }
 
 # Sanitize branch name: slashes become hyphens
@@ -232,24 +256,27 @@ _cmux_check_update() {
 
 _cmux_new() {
   if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
+    echo "Usage: cmux new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]"
     echo ""
     echo "  Create a new worktree and branch, run setup hook, and launch Claude Code."
+    echo "  Branches from the repo's default branch unless --from is specified."
     echo "  Use -p to pass an initial prompt to Claude."
     echo "  Use -- to pass additional flags to the claude CLI."
     return 0
   fi
   if [[ -z "$1" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
+    echo "Usage: cmux new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
 
   local prompt=""
+  local from_branch=""
   local branch_words=()
   local claude_args=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -p) prompt="$2"; shift 2 ;;
+      --from) from_branch="$2"; shift 2 ;;
       --) shift; claude_args=("$@"); break ;;
       *)  branch_words+=("$1"); shift ;;
     esac
@@ -257,7 +284,7 @@ _cmux_new() {
   local branch="${branch_words[*]// /-}"
 
   if [[ -z "$branch" ]]; then
-    echo "Usage: cmux new <branch> [-p <prompt>] [-- <claude-args>]"
+    echo "Usage: cmux new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]"
     return 1
   fi
   local repo_root
@@ -279,7 +306,13 @@ _cmux_new() {
     if [[ "$layout" != "sibling" ]]; then
       mkdir -p "$base_dir"
     fi
-    git -C "$repo_root" worktree add "$worktree_dir" -b "$branch" || return 1
+    local start_point
+    if [[ -n "$from_branch" ]]; then
+      start_point="$from_branch"
+    else
+      start_point="$(_cmux_default_branch "$repo_root")" || return 1
+    fi
+    git -C "$repo_root" worktree add "$worktree_dir" -b "$branch" "$start_point" || return 1
     cd "$worktree_dir"
 
     # Run project-specific setup hook
