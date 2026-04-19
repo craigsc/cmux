@@ -14,7 +14,7 @@
 #   cmux init [--replace] — Generate .cmux/setup hook using Claude
 #   cmux config           — View or set worktree layout configuration
 #   cmux update           — Update cmux to the latest version
-#   cmux version          — Show current version
+#   cmux version          — Show current version and release notes
 
 _CMUX_DOWNLOAD_URL="https://github.com/craigsc/cmux/releases/latest/download"
 CMUX_VERSION="unknown"
@@ -25,6 +25,7 @@ cmux() {
   shift 2>/dev/null
 
   _cmux_check_update
+  _cmux_show_update_notes
 
   case "$cmd" in
     new)     _cmux_new "$@" ;;
@@ -36,9 +37,9 @@ cmux() {
     init)    _cmux_init "$@" ;;
     config)  _cmux_config "$@" ;;
     update)  _cmux_update "$@" ;;
-    version) echo "cmux $CMUX_VERSION" ;;
+    version) _cmux_version "$@" ;;
     --help|-h|"")
-      echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update> [branch]"
+      echo "Usage: cmux <new|start|cd|ls|merge|rm|init|config|update|version> [branch]"
       echo ""
       echo "  new <branch> [--from <base>] [-p <prompt>] [-- <claude-args>]"
       echo "                       New worktree + branch, run setup hook, launch Claude"
@@ -52,7 +53,7 @@ cmux() {
       echo "  init [--replace] Generate .cmux/setup hook using Claude"
       echo "  config           View or set worktree layout configuration"
       echo "  update           Update cmux to the latest version"
-      echo "  version          Show current version"
+      echo "  version          Show current version and release notes"
       return 0
       ;;
     *)
@@ -250,6 +251,59 @@ _cmux_check_update() {
     printf '%s' "$now" > "$check_file"
   } &>/dev/null &
   disown 2>/dev/null
+}
+
+# Extract the current version's section from NOTES.md (sectioned by "## X.Y.Z").
+_cmux_version_notes() {
+  local notes_file="$HOME/.cmux/NOTES.md"
+  [[ -f "$notes_file" ]] || return 1
+  local output
+  output="$(awk -v hdr="## $CMUX_VERSION" '
+    $0 == hdr { in_section = 1; next }
+    /^## / { in_section = 0 }
+    in_section { print }
+  ' "$notes_file")"
+  [[ -z "$output" ]] && return 1
+  printf '%s' "$output"
+}
+
+# Silent on first run (no seen file yet) so fresh installs and pre-existing
+# users upgrading into this feature don't get a surprise blast of notes.
+_cmux_show_update_notes() {
+  local seen_file="$HOME/.cmux/.last_seen_version"
+  local last_seen=""
+  [[ -f "$seen_file" ]] && last_seen="$(<"$seen_file")"
+
+  if [[ -z "$last_seen" ]]; then
+    printf '%s' "$CMUX_VERSION" > "$seen_file"
+    return 0
+  fi
+
+  [[ "$last_seen" == "$CMUX_VERSION" ]] && return 0
+
+  local notes
+  if notes="$(_cmux_version_notes 2>/dev/null)"; then
+    echo ""
+    echo "cmux $CMUX_VERSION — what's new:"
+    echo "$notes"
+    echo ""
+  fi
+  printf '%s' "$CMUX_VERSION" > "$seen_file"
+}
+
+_cmux_version() {
+  if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+    echo "Usage: cmux version"
+    echo ""
+    echo "  Show the installed cmux version and its release notes."
+    return 0
+  fi
+  echo "cmux $CMUX_VERSION"
+  local notes
+  if notes="$(_cmux_version_notes 2>/dev/null)"; then
+    echo ""
+    echo "$notes"
+  fi
 }
 
 # ── Subcommands ──────────────────────────────────────────────────────
@@ -1033,6 +1087,7 @@ _cmux_update() {
   if curl -fsSL "${_CMUX_DOWNLOAD_URL}/cmux.sh" -o "$install_path"; then
     printf '%s' "$remote_version" > "$HOME/.cmux/VERSION"
     printf '%s' "$remote_version" > "$HOME/.cmux/.latest_version"
+    curl -fsSL "${_CMUX_DOWNLOAD_URL}/NOTES.md" -o "$HOME/.cmux/NOTES.md" 2>/dev/null
     source "$install_path"
     echo "cmux updated to $CMUX_VERSION."
   else
