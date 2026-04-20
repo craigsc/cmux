@@ -12,6 +12,7 @@ mkdir -p "$INSTALL_DIR"
 echo "Downloading cmux..."
 curl -fsSL "$RELEASE_URL/cmux.sh" -o "$INSTALL_PATH"
 curl -fsSL "$RELEASE_URL/VERSION" | tr -d '[:space:]' > "$INSTALL_DIR/VERSION"
+curl -fsSL "$RELEASE_URL/NOTES.md" -o "$INSTALL_DIR/NOTES.md" 2>/dev/null || true
 
 # Clear stale update-check cache from any previous install
 rm -f "$INSTALL_DIR/.latest_version" "$INSTALL_DIR/.last_check"

@@ -20,4 +20,5 @@ jobs:
           files: |
             cmux.sh
             VERSION
+            NOTES.md
             install.sh
