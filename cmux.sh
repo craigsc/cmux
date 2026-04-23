@@ -66,13 +66,26 @@ cmux() {
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
+# Canonical path resolver that produces a format compatible with `git worktree list`.
+# On Windows (Git Bash / MSYS), `realpath` returns POSIX form (/c/Users/...) while
+# `git worktree list` returns mixed form (C:/Users/...), breaking path-prefix filters
+# used by `cmux ls` and similar. Use `cygpath -ma` on Windows to produce an absolute
+# mixed-form path. Falls back to `realpath` everywhere else.
+_cmux_canonical_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -ma "$1" 2>/dev/null
+  else
+    realpath "$1"
+  fi
+}
+
 # Get the repo root from anywhere (works inside worktrees too)
-# Uses realpath instead of cd to avoid triggering direnv/shell hooks
+# Uses _cmux_canonical_path instead of cd to avoid triggering direnv/shell hooks
 _cmux_repo_root() {
   local git_common_dir
   git_common_dir="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
   # --git-common-dir returns the .git dir; parent is repo root
-  realpath "$(dirname "$git_common_dir")"
+  _cmux_canonical_path "$(dirname "$git_common_dir")"
 }
 
 # Detect the repo's default branch (main, master, etc.)
