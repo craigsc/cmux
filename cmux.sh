@@ -673,22 +673,29 @@ _cmux_rm() {
     rm_ok=true
   fi
 
-  # Windows (Git Bash / MSYS) often holds transient locks on files inside
-  # node_modules (or any deeply-nested dependency tree) right after a process
-  # exits. The first `git worktree remove` then fails with "Directory not empty"
-  # or a permission error, even though the lock clears within a second or two.
-  # Retry up to 3 times with a short backoff before giving up.
+  # Windows (Git Bash / MSYS) holds file locks on `node_modules` and native
+  # binaries (esbuild, vitest, etc.) for several seconds after a process exits.
+  # The first `git worktree remove` then fails with "Directory not empty" or a
+  # permission error. Retry with backoff, and as a last resort fall back to a
+  # direct filesystem removal + `git worktree prune` since git refuses to delete
+  # a directory it cannot fully empty itself.
   if ! $rm_ok; then
     case "$(uname -s)" in
       MINGW*|MSYS*|CYGWIN*)
         local i
-        for i in 1 2 3; do
-          sleep 1
+        for i in 1 2 3 4 5; do
+          sleep 2
           if git -C "$repo_root" worktree remove "${remove_args[@]}" 2>/dev/null; then
             rm_ok=true
             break
           fi
         done
+        # Last-resort fallback: force filesystem removal and prune git metadata
+        if ! $rm_ok && [[ -d "$worktree_dir" ]]; then
+          if rm -rf "$worktree_dir" 2>/dev/null && git -C "$repo_root" worktree prune 2>/dev/null; then
+            rm_ok=true
+          fi
+        fi
         ;;
     esac
   fi
