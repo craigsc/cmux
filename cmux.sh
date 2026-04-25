@@ -667,7 +667,33 @@ _cmux_rm() {
     "$repo_root/.cmux/teardown"
   fi
 
-  if git -C "$repo_root" worktree remove "${remove_args[@]}"; then
+  # First attempt to remove the worktree
+  local rm_ok=false
+  if git -C "$repo_root" worktree remove "${remove_args[@]}" 2>/dev/null; then
+    rm_ok=true
+  fi
+
+  # Windows (Git Bash / MSYS) often holds transient locks on files inside
+  # node_modules (or any deeply-nested dependency tree) right after a process
+  # exits. The first `git worktree remove` then fails with "Directory not empty"
+  # or a permission error, even though the lock clears within a second or two.
+  # Retry up to 3 times with a short backoff before giving up.
+  if ! $rm_ok; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*)
+        local i
+        for i in 1 2 3; do
+          sleep 1
+          if git -C "$repo_root" worktree remove "${remove_args[@]}" 2>/dev/null; then
+            rm_ok=true
+            break
+          fi
+        done
+        ;;
+    esac
+  fi
+
+  if $rm_ok; then
     git -C "$repo_root" branch -d "$branch" 2>/dev/null
     # If we were inside the removed worktree, cd out
     if [[ "$PWD" == "$worktree_dir"* ]]; then
