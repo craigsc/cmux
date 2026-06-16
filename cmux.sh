@@ -728,7 +728,7 @@ _cmux_rm_all() {
   # Show what will be removed
   echo "This will remove ALL cmux worktrees and their branches:"
   echo ""
-  for (( i = 1; i <= ${#dirs[@]}; i++ )); do
+  for (( i = 0; i < ${#dirs[@]}; i++ )); do
     local rel_dir="${dirs[$i]#$repo_root/}"
     echo "  $rel_dir  (branch: ${branches[$i]})"
   done
@@ -751,7 +751,7 @@ _cmux_rm_all() {
   # Remove each worktree
   echo ""
   local failed=0
-  for (( i = 1; i <= ${#dirs[@]}; i++ )); do
+  for (( i = 0; i < ${#dirs[@]}; i++ )); do
     # Run project-specific teardown hook
     cd "${dirs[$i]}"
     if [[ -x "${dirs[$i]}/.cmux/teardown" ]]; then
