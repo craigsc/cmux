@@ -667,7 +667,40 @@ _cmux_rm() {
     "$repo_root/.cmux/teardown"
   fi
 
-  if git -C "$repo_root" worktree remove "${remove_args[@]}"; then
+  # First attempt to remove the worktree
+  local rm_ok=false
+  if git -C "$repo_root" worktree remove "${remove_args[@]}" 2>/dev/null; then
+    rm_ok=true
+  fi
+
+  # Windows (Git Bash / MSYS) holds file locks on `node_modules` and native
+  # binaries (esbuild, vitest, etc.) for several seconds after a process exits.
+  # The first `git worktree remove` then fails with "Directory not empty" or a
+  # permission error. Retry with backoff, and as a last resort fall back to a
+  # direct filesystem removal + `git worktree prune` since git refuses to delete
+  # a directory it cannot fully empty itself.
+  if ! $rm_ok; then
+    case "$(uname -s)" in
+      MINGW*|MSYS*|CYGWIN*)
+        local i
+        for i in 1 2 3 4 5; do
+          sleep 2
+          if git -C "$repo_root" worktree remove "${remove_args[@]}" 2>/dev/null; then
+            rm_ok=true
+            break
+          fi
+        done
+        # Last-resort fallback: force filesystem removal and prune git metadata
+        if ! $rm_ok && [[ -d "$worktree_dir" ]]; then
+          if rm -rf "$worktree_dir" 2>/dev/null && git -C "$repo_root" worktree prune 2>/dev/null; then
+            rm_ok=true
+          fi
+        fi
+        ;;
+    esac
+  fi
+
+  if $rm_ok; then
     git -C "$repo_root" branch -d "$branch" 2>/dev/null
     # If we were inside the removed worktree, cd out
     if [[ "$PWD" == "$worktree_dir"* ]]; then
